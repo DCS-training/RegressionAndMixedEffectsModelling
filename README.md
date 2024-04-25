@@ -40,20 +40,30 @@ Congratulations you have now pulled the content of the repository on your Notabl
 2. Go to the download link
 3. Choose your CRAN mirror nearer to your location (either Bristol or Imperial College London)
 4. Download the correspondent version depending if you are using Windows Mac or Linux
+   
   4a. For Windows click on install R for the first time. Then download R for Windows and follow the installation widget. If you get stuck follow this (video tutorial)[https://www.youtube.com/watch?v=GAGUDL-4aVw]
+  
   4b. Form Mac Download the most recent pkg file and follow the installation widget. If you get stuck follow this (video tutorial)[https://www.youtube.com/watch?v=EmZqlcKkJMM]
-5. Once R is installed you can install R studio (R interface)
-6. Go to (www.rstudio.com)[www.rstudio.com]
-7. Go in download
-8. Download the correspondent version depending on your Operating system and install it. If you get stuck check the videos linked above. 
+  
+6. Once R is installed you can install R studio (R interface)
+7. Go to (www.rstudio.com)[www.rstudio.com]
+8. Go in download
+9. Download the correspondent version depending on your Operating system and install it. If you get stuck check the videos linked above. 
 
 ## Install the libraries 
 ```
+install.packages("tidyverse")
+install.packages("lme4")
+install.packages("effects") 
+install.packages("sjPlot") 
+install.packages("interactions")
+
 library("tidyverse") #for cleaning and sorting out data
 library("lme4") #for fitting linear mixed-effects models (LMMs)
 library("effects") #for creating tables and graphics that illustrate effects in linear models
 library("sjPlot") #for plotting models
-library("interactions") #for plotting interaction effects``` 
+library("interactions") #for plotting interaction effects
+``` 
 
 # What you are going to find in this repo
 Once ready, you are going to find 
