@@ -1,0 +1,607 @@
+---
+title: "Regression and Mixed-effects Modelling in R : Session 1"
+author: "Fang Jackson-Yang"
+date: "2024-04-29"
+output: bookdown::pdf_document2
+toc: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide')
+```
+
+
+# Preparation
+
+## Install packages
+
+We will need the following packages for this course:
+
+"tidyverse" : used for cleaning and sorting out data.
+
+"lme4" : used for fitting linear mixed-effects models (LMMs).
+
+"effects" : used for creating tables and graphics that illustrate effects in 
+linear models.
+
+"sjPlot" : used for plotting models.
+
+"interactions": used for plotting interaction effects.
+
+Note that in R markdonw, packages should be installed in the console (the 
+bottom-left panel) and libraries in the source panel (the top-left panel) > 
+install.packages(c("tidyverse", "lme4", "effects", "sjPlot", "interactions")).
+
+```{r install packages, include=FALSE}
+library("tidyverse")
+library("lme4")
+library("effects")
+library("sjPlot")
+library("interactions")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+## load data
+
+We are going to use a simulated dataset called "vocabtrainingdata". The data are 
+simulated but are based on a real case from UK's education section.
+
+```{r load data}
+vocabdata <- read_csv("vocabtrainingdata.csv")
+```
+
+A secondary school in Glasgow were considering to invest in a new online course 
+for vocabulary teaching in foreign language classes (French). Before the school 
+could make a decision, they wanted to look into the effectiveness of the online 
+course. They were particularly interested in its effectiveness in improving the 
+vocabulary competence of pupils in S4 (i.e.,the 4th yr in Scottish secondary 
+schools). 
+
+40 students from two proficiency groups took part, half with high proficiency 
+level of French (high proficiency group) and the other half with intermediate 
+proficiency (intermediate proficiency group). 
+
+Students participated in this course over 10 weeks. In the first week (Week 0), 
+students were introduced to the course and did a pre-course vocabulary test. 
+In the following nine weeks (week 1-9), each week they received one training 
+session online in their own time followed by a vocabulary test one day after 
+the training session. Most students completed all training sessions and took 
+all tests, however, some students missed a few sessions or dropped out at some 
+point during the course. 
+
+Our aim is to build regression models and make inferences about the effectiveness
+of the online training course on improving students' vocabulary competence, 
+in order to inform the school about whether it would be a good investment. 
+
+# Data wrangling 
+
+## Check data
+
+```{r}
+summary(vocabdata)
+
+head(vocabdata)
+
+str(vocabdata)
+
+table(is.na(vocabdata))
+
+vocabdata$proficiency <- as.factor(vocabdata$proficiency)# code categorical variables factors
+levels(vocabdata$proficiency)# check levels
+```
+
+Remember to properly code your variables before performing analyses. For 
+categorical variables, check the reference level. Relevel it if you want by 
+using the fct_relevel() function, for example: 
+vocabdata$proficiency<-fct_relevel(vocabdata$proficiency, "intermediate").
+
+You may also want to contrast code your variable. There 
+are many different ways of contrast coding. Here is an excellent source if you
+want to learn mmore about contrast coding:
+
+https://stats.oarc.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
+
+
+## Visualise data
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+ggplot(na.omit(vocabdata), 
+       aes(week, vocab_test_score, group=participant, colour = participant)) +
+  geom_point() + 
+ #facet_wrap(~proficiency, ncol=2) + 
+  scale_x_continuous(limits=c(0, 10),breaks=c(0,2,4,6,8,10)) +
+  scale_y_continuous(limits=c(40, 100))
+```
+
+# Simple regression analysis
+
+## Simple regression with one predictor
+
+Recall that our aim is to look into the effectiveness of the online training 
+course on participants' vocabulary competence - measured in their vocab test 
+scores over the weeks. 
+
+In other words, we need to build a model to inform us about how vocab test 
+scores can be explained by their progress in the online course (week1, week2 
+and so forth).
+
+we can call their progress in the online course or "week" a PREDICTOR variable 
+(AKA independent variable), and their vocab test score an OUTCOME variable (AKA 
+dependent variable).
+
+Essentially, we want to investigate how "vocab_test_score" is explained by 
+"week" in a regression model.
+
+### Visualise the data
+
+We first plot the data without specifying any relation between week and test score.
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+ggplot(data=vocabdata,
+       aes(x=week, y=vocab_test_score))+
+    geom_line()+
+    stat_summary(fun.data=mean_se, geom="pointrange") + 
+    stat_summary(data=vocabdata,fun=mean, geom="line") + 
+    scale_x_continuous(limits=c(0, 9),breaks=c(0:9 * 1)) +
+  scale_y_continuous(limits=c(40, 100))+
+    labs(x="Week of training", y = "Vocab test score", title = "Vocab data plot")
+```
+
+Next we plot the data by specifying a linear relation between week and test
+score - note that we have not built any models yet, we are just smoothing the 
+line/trend by adding this specification. 
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+ggplot(vocabdata) +
+  aes(x = week, y = vocab_test_score) + 
+  stat_smooth(method = "lm", se = FALSE) +
+  # Put the points on top of lines
+  geom_point() +
+  labs(x = "Week of the training course", y = "Weekly vocab test score") + 
+  # We also need to help the x-axis, so it doesn't 
+  # create gridlines/ticks on 2.5 days
+  scale_x_continuous(breaks = 0:4 * 2)+
+  labs(x="Week of training", 
+       y = "Vocab test score",
+       title = "Vocab regression line")
+```
+
+The relationship does look linear. Next we will try to fit a simple regression
+model to investigate this further.
+
+### Fit a simple model
+
+We fit a simple regression model by taking information from all observations 
+without considering individual differences. In other words, this model assumes
+the vocab online training course has the same effect on every student.
+
+```{r}
+m1 <- lm(vocab_test_score ~ week, data = vocabdata) 
+summary(m1)
+```
+
+### visualise the model (predicted effects)
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+# plot the fitted data
+plot_model(m1, type="eff", terms = c("week"), show.data = TRUE)
+```
+
+### Interpret model output
+
+Important Concepts
+
+Intercept: the expected value of the outcome variable when the predictor variable
+is at 0. In this case, overall students are expected to have a score of 63.15 
+when they start the training course in week0). Represented in the plot, it is 
+the point where the regression line crosses y when x = 0.
+
+Slope: the number of units by which the outcome variable increases, on average, 
+for a unit increase in the predictor variable.In this case, students' test 
+scores are expected to improve by 1.30 point on average, as they proceed into a 
+new week in the course. Represented in the plot, it is the "slope" of the line -
+hence the name; it shows the rate of change.
+
+Residuals (AKA errors): the difference between the expected value that the model
+predicts and each actual data point. Residuals measure how good a model is (in 
+terms of fitting or predicting the data).
+
+R-squared: how much the model explains the actually observed data, in this case
+about 8%.
+
+F-statistics/F-ratio: the significance of the overall model compared to a null 
+hypothesis (which assumes the model explains nothing). The p-values indicates 
+how likely you would get the observed data given the null hypothesis - a smaller
+p-value indicates a smaller likelihood. In this case, P < .001 (0.1%), it's very
+very unlikely to get the observed data if the null hypothesis was true. We can 
+say that the results reject the null hypothesis but support our hypothesis that 
+the predictor "week" does help explain the data.
+
+BREAK
+
+WELL DONE on fitting your first regression model (for this dataset)!
+
+Hopefully you now have clearer understanding about the basics of linear 
+regression models and important concepts.
+
+Let's take a break.
+
+## Simple regression with two predictors and their interaction 
+
+In the analysis above, We ignored students' proficiency level. Does it help 
+explain the data if we additionally include proficiency level as a predictor? 
+
+### Additive model (week + proficiency)
+
+```{r}
+m2a <- lm(vocab_test_score ~ week + proficiency, data = vocabdata) 
+summary(m2a)
+```
+
+Can you interpret the results? What do these numbers mean?
+
+Intercept: 72.41
+
+Slope1(week): 1.29
+
+Slope2(proficiencyintermediate): -18.47
+
+Residuals (Adjusted R-squared): 0.60
+
+F-statistics: F(2, 366) = 278.2, p < .001
+
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+# plot fitted data
+# Using the probe_interaction() function from the interactions package, 
+# visualise the interaction effects from your model.
+probe_interaction(m2a,
+                  pred=week,
+                  modx=proficiency,
+                  interval = T,
+                  main.title = "Predicted effectiveness of the vocab training 
+                  course based on an additive model",
+                  x.label = "Week into the online training course",
+                  y.label = "Vocab test score",
+                  legend.main = "Proficiency level")
+
+```
+
+### Think point:
+
+Is this additive two-predictor model better than the one-predictor model?
+In other words, does knowing students' proficiency level help us better 
+understand the effectiveness of the training course?
+
+We can use the anova() function to compare the two models.
+
+```{r}
+anova(m1, m2a)
+```
+
+Interpret the results of the model comparison: 
+
+Results show yes, the two-predictor model (m2a) significantly improved model fit
+compared to the one-redictor model (m1); F(1) = 478.58, p < 0.001.
+
+Check again the adjusted R-squared of the two models that we got above:
+
+For the one-predictor model "m1", Adjusted R-squared:   0.082, F(1, 367) = 33.85,
+p <.001 (rejecting null hypothesis)
+
+for the two-predictor model "m2a", Adjusted R-squared:  0.60,  F(2, 366) = 278.2,
+p <.001 (rejecting null hypothesis)
+
+### Interactive model (week * proficiency)
+
+How do we know whether the effectiveness of the training course is dependent on 
+students' proficiency level or not? Did students with different proficiency 
+levels show similar or different progressive trend as they took the course? 
+
+In other words, is the training course as effective or ineffective for the 
+high-proficient students compared to the intermediate-proficient students?
+
+#### Visualise the data
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+
+ggplot(data=vocabdata,
+       aes(x=week, y=vocab_test_score, color= proficiency))+
+    geom_line()+
+    stat_summary(fun.data=mean_se, geom="pointrange") + 
+    stat_summary(data=vocabdata,fun=mean, geom="line") + 
+  scale_x_continuous(limits=c(0, 9),breaks=c(0:9 * 1)) +
+  scale_y_continuous(limits=c(40, 100))+
+    labs(x="Week of training", y = "Vocab test score", title = "Vocab data plot")
+
+```
+
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+
+# show a regression line for each proficiency group ()
+
+ggplot(vocabdata) +
+  aes(x = week, y = vocab_test_score, group=proficiency, colour = proficiency) + 
+  stat_smooth(method = "lm", se = TRUE) +
+  geom_point() +
+  labs(x = "Week of the training course", y = "Weekly vocab test score") + 
+  scale_x_continuous(breaks = 0:4 * 2)+
+  labs(x="Week of training", y = "Vocab test score", title = "Vocab regression 
+       lines for each proficiency group")
+```
+
+
+#### Fit an interactive model
+
+N.B. The following two model structures are identical.
+ X1*X2 is equal to (X1 + X2 + X1:X2)
+
+Version 2 is just a simplified way of specifying both main effects (e.g., X1, 
+X2) and interaction effects (e.g., X1:X2) in R. 
+
+From now on, we will use the shortened version (e.g., X1*X2) in the rest of
+the course. 
+
+```{r}
+# version 1
+m2bv1 <- lm(
+  vocab_test_score ~ week + proficiency + week:proficiency, data = vocabdata
+  ) 
+summary(m2bv1)
+
+# version 2
+m2bv2 <- lm(vocab_test_score ~ week * proficiency, data = vocabdata) 
+summary(m2bv2)
+```
+
+Can you interpret the results? What do these number mean?
+
+Intercept: 75.91
+On the plot: The point at which the regression line of the reference level 
+(i.e., high proficiency) cuts the y-axis.
+
+Slope1(week): 0.50
+On the plot: The slope of the regression line of the reference level 
+(i.e., high proficiency) (increase of score by 1 week in the reference group).
+
+Slope2(proficiencyintermediate): -25.38
+On the plot: the distance between the two regression lines on the y-axis when 
+x = 0. i.e., difference of the test scores between teh two groups at week0. 
+
+Slope3(week:proficiencyintermediate): 1.56
+On the plot: change of the steepness from the regression line of the reference
+group (high-proficiency, blue line) to the regression line of the other 
+proficiency group (intermediate-proficiency, orange line).
+
+Residuals(errors) Adjusted R-squared:  0.63
+
+F-statistics/F-ratio: F(3, 365) = 210.5, p< .001
+
+#### Visulise the interactive model (predicted effects)
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+# plot fitted data
+# Using the probe_interaction() function from the interactions package,visualise
+# the interaction effects from your model.
+probe_interaction(
+  m2bv1,
+  pred=week,
+  modx=proficiency,
+  interval = T,
+  main.title = "Predicted effectiveness of the vocab training course",
+  x.label = "Week into the online training course",
+  y.label = "Vocab test score",
+  legend.main = "Proficiency level"
+  )
+```
+
+### Model comparison 
+
+We have built an additive model and an interactive model and we know either of 
+them has improved the model fit compared to null model.
+
+Is the interactive model better than teh additive model? In other words, does 
+the interaction between week and proficiency improve the quality of the model 
+and explain the data better?
+
+As before, we use the anova(model1, model2) function to test this statistically. 
+
+```{r}
+anova(m2a, m2bv1)
+```
+
+The results suggest that the interactive model significantly improved model fit,
+F(1)=30.42, P < .001. 
+
+Check again the adjusted R-squared, we can see the additive model explained 60%
+of the data whereas the interactive model explained 63%. 
+
+BREAK
+
+WELL DONE on completing Section 2! 
+
+Let's take a break.
+
+# Individual differences and linear mixed-effects models (LMMs)
+
+Our interactive model can explain 63% of the data, which is not bad. However, 
+the model took information from all observations without considering individual 
+differences. In other words, it assumed the vocab online training course had the
+same effect on every student. Was this the case?
+
+Let's visualise it and see. 
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+
+ggplot(data=vocabdata,
+       aes(x=week, y=vocab_test_score, colour = participant))+
+    geom_point()+
+    stat_summary(fun.data=mean_se, geom="pointrange") + 
+    stat_summary(data=vocabdata,fun=mean, geom="line") + 
+  scale_x_continuous(limits=c(0, 9),breaks=c(0:9 * 1)) +
+  scale_y_continuous(limits=c(40, 100))+
+    labs(x="Week of training", y = "Vocab test score", title = "Observed learning
+trajectory of each student")
+
+```
+
+We can clearly see that each student showed a different trend. We should not 
+ignore this information when modelling. The question is how do we deal with 
+such individual differences?
+
+## First appraoch 
+
+You might wonder whether we could just add participants as a predictor variable
+- just as how we did it when adding a second predictor "proficiency" to the 
+one-predictor model (including only one predictor "week"). Theoretically we can 
+do this but whether it is a good approach needs some thinking. Let's try it out
+first.
+
+Here our aim is to understand how to best deal with individual difference 
+(rather than build an optimal model that can best explain the data). For this 
+purpose, we want to keep things simple, therefore we just focus on the effect 
+of "week" for now (leaving proficiency aside).
+
+We will build a model including "week" and "participant" as two predictor 
+variables, this way we fit a separate regression line for each participant. 
+As before, We will fit two models, one is additive (including two predictors, 
+i.e., week and participant) and the other is interactive (including three 
+predictors, i.e., week, participant, and the interaction between week 
+and participant).
+
+### (a). Additive model accounting for individual difference
+
+#### Fit an additive model
+
+This additive model assumes week has the same effect on each participant.
+
+```{r, echo=T,  results='hide'}
+m3a <- lm(vocab_test_score ~ week + participant, data = vocabdata) 
+summary(m3a)
+```
+
+#### Visualise the trend as predicted by the additive model
+
+
+```{r, echo=FALSE, fig.width=8, fig.height=6}
+
+broom::augment(m3a) %>%
+ ggplot(.,aes(x=week, y=.fitted, color=participant))+
+ geom_line()+
+  labs(x="Week of training",  title = "Fit a regression line for each student 
+assuming the same effect from the online course")
+
+```
+
+### (b). Interactive model accounting for individual difference 
+
+In the interactive model, we assume that the effect of training/week on test 
+scores is dependent of participants (i.e., students had different starting point
+- different intercepts, but also showed different learning patterns as they took
+the training - different slopes as well).
+
+#### Fit an interactive model 
+
+```{r,echo=T, results='hide'}
+m3b <- lm(vocab_test_score ~ week * participant, data = vocabdata) 
+summary(m3b)
+```
+
+#### Visualise the trend as predicted by the interactive model 
+
+
+```{r}
+
+broom::augment(m3b) %>%
+ ggplot(.,aes(x=week, y=.fitted, color=participant))+
+ geom_line()+
+  labs(x="Week of training",  title = "Fit a regression line for each student
+assumsing different effects from the online course")
+
+```
+
+## A better approach: Treat is as a random effect in a linear MIXED-effects model 
+
+In the first approach above, we included participants as a predictor variable 
+(independent variable). This can be done as you see in the model results, 
+however, this is not very helpful for us. 
+
+First of all, the regression results gave us a lot of coefficients (check how 
+many rows the output tables have), making it difficult to make inferences or 
+generalise the general tendency - here we only had 40 participants but imagine
+your research deals with a larger sample size with hundreds or thousands of 
+participants.
+
+Importantly, the individual differences do not influence the general tendency 
+in a structured manner; they are rather random. For example, a student could be
+particularly fast or slow in progressing in their learning, or they could have 
+a more or less complex trajectory, these are all random. But in quantitative 
+research, we aim to generalise; we want to see whether there is the main effect
+of the predictor that we are interested in (here, the online training course) 
+on students' improvement, after accounting for such individual differences. 
+
+Therefore, it is better to treat individual differences as a RANDOM EFFECT 
+(rather than a main predictor) in a regression model. We can then call our 
+predictor variables (e.g., week, proficiency) FIXED EFFECTS, which influence 
+the outcome variable in a structured manner.
+
+This leads us to linear MIXED-effects regression models; we mix the FIXED 
+effects and the RANDOM effects. In doing so, we can control for individual 
+differences while modelling the influences of our predictor variables on the 
+outcome variable that we are interested in. 
+
+### Think point:
+
+We are not going to look into mixed models in detail in today's session, but I 
+want to show you what the model structure looks like for a mixed-effects model.
+
+Recall the structure of our simple regression model (the interactive model):
+
+(1)m2bv2 <-
+ lm(vocab_test_score ~ week * proficiency, data = vocabdata) 
+
+Compare it with the two mixed-effects models below: 
+
+(2)mixedm1 <- 
+ lmer(vocab_test_score ~ week * proficiency + (1 + week | participant), data = vocabdata)
+
+(3)mixedm2 <-
+ lmer(vocab_test_score ~ week * proficiency + (1 | participant), data = vocabdata)
+
+#### Questions for you:
+
+1. How do the two linear mixed-effects models, i.e., (2) & (3), differ from the 
+simple regression model (1)? 
+
+2. How does (2) differ from (3)?
+
+You can very quickly run the mixed-effect models (2) and (3) below to get a bit
+of the taste.
+
+### Fit a mixed-effects model
+
+```{r, include=FALSE}
+library(lmerTest)  
+```
+
+A note on the "lmerTest" package. Here we use the Satterthwaite method to add a
+column of p-values to the results. Unlike in simple regression models lm(), in 
+mixed models we do not automatically get p values. This is because in mixed 
+models, we have residuals at multiple levels thus we don't know what kind of 
+distributions the ratios of sums of squares are. In contrast, in simple 
+regressions we know better about the distributions (F or t distribution).
+
+```{r, echo=T, results='hide'}
+mixedm1 <- lmer(vocab_test_score ~ week*proficiency + (1 + week | participant), 
+                data = vocabdata)
+summary(mixedm1) 
+```
+
+```{r, echo=T, results='hide'}
+mixedm2 <- lmer(vocab_test_score ~ week * proficiency + (1 | participant), 
+                data = vocabdata)
+summary(mixedm2)
+```
