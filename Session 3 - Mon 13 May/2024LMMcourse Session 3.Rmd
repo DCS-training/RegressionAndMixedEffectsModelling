@@ -1,0 +1,470 @@
+---
+title: "Regression and Mixed-effects Modelling in R : Session 3"
+author: "Fang Jackson-Yang"
+date: "2024-05-12"
+output: bookdown::pdf_document2
+toc: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide')
+```
+
+
+```{r install packages, include=FALSE}
+library("tidyverse")
+library("lme4")
+library("effects")
+library("sjPlot") # for creating regression models
+library("webshot") # for converting tab_model shot from html to png and include it in the .pdf file of the report
+library("kableExtra") # for creating descriptive statistics tables
+library("patchwork") # for arrange plots 
+
+library("broom.mixed") #"broom" for mixed models, used to turn messy R output into nicer table and plots
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+# Data Wrangling and Visualisation
+
+Language partners' usage of slang (e.g., 'noob') is predicted by whether their 
+interlocutor has just used another slang word (e.g., 'M8') when its alternative 
+standard form is available (e.g., 'M8' vs. 'mate' vs 'friend').
+
+```{r load data}
+data_ISD <- read_csv("internet_slang_data.csv")
+```
+
+```{r}
+summary(data_ISD)
+
+data_ISD$Response <-as.factor(data_ISD$Response)
+
+data_ISD$Prime <- factor(data_ISD$Prime, levels=c("other","standard","slang")) 
+
+```
+
+```{r}
+# check missing values
+table(data_ISD$Response, data_ISD$Prime, useNA = "ifany")
+```
+
+```{r, out.width = "80%", out.height = "100%"}
+ggplot(data_ISD, aes(x=Prime, fill= as.factor(Response))) +
+  geom_bar(position = "fill") +
+  ggtitle(label = "Participants' choices of slang vs standard words")+
+  labs(y = "Proportion of different choices", 
+       x= "Prime" )+ 
+  theme(plot.title = element_text(hjust = 0.5, size=12,face = "bold"),
+        axis.text.x = element_text(size=12,face = "bold"),
+        axis.title.x = element_text(size=12,face = "bold"),
+        axis.title.y = element_text(size=12,face = "bold"),
+        legend.title = element_text(size=12,face = "bold"),
+        legend.text = element_text(size=12,face = "bold")
+  )
+```
+
+# Fit Glmer Models
+
+## Maximum Model
+
+```{r, echo=TRUE}
+m_max_dataISD = glmer(Response ~ Prime + 
+                        (1 + Prime|Participant) + 
+                        (1 + Prime|Item), 
+                      data = data_ISD, 
+                      family='binomial',
+                      na.action=na.exclude)
+summary(m_max_dataISD)
+```
+
+### Think point: Any issue with this model? How do you solve it?
+
+We got a warning:
+ boundary (singular) fit: see ?isSingular.
+
+The warning indicates that the model is ‘overfitted’ - that is, the random 
+effects structure which we have specified is too complex to be supported by the
+data.
+
+Perhaps the most intuitive advice would be remove the most complex part of the 
+random effects structure (i.e. random slopes). This leads to a simpler model 
+that is not over-fitted.
+
+Additionally, when variance estimates are low for some specific random effect 
+terms, this indicates that the model is not estimating this parameter to differ 
+much between the levels of your grouping variable. In some experimental designs,
+it might be perfectly acceptable to remove  this.
+
+## Reduced model 1 - drop by-item random slop
+
+```{r, echo=TRUE}
+m2_dataISD = glmer(Response ~ Prime + 
+                               (1 + Prime|Participant) +
+                               (1 | Item), data = data_ISD,
+                             family='binomial',
+                             na.action=na.exclude)
+summary(m2_dataISD)
+```
+
+### think point: Any issue with this model? How do you solve it?
+ 
+This model gave convergence warnings.
+
+One way to deal with convergence issue is to adjust / stopping the (convergence)
+tolerance for the nonlinear optimizer, using the optCtrl argument for
+[g]lmerControl:
+    - optimizer="bobyqa" for Changing the optimization method
+    - optCtrl=list(maxfun=2e5): for increasing the number of optimization steps.
+    
+Next we refit the model adding specifications for convergence tolerance.
+
+## Reduced model 2
+
+```{r, echo=TRUE}
+m2b_dataISD = glmer(Response ~ Prime + 
+                      (1 + Prime | Participant) + 
+                      (1 | Item), 
+                    data = data_ISD, 
+                    family='binomial',
+                    na.action=na.exclude,
+                    control=glmerControl(optimizer="bobyqa",
+                                         optCtrl=list(maxfun=2e5))) 
+
+summary(m2b_dataISD) 
+```
+ 
+### Think point: Any issue with this model? How do you solve it?
+
+## Simplest Model
+
+```{r, echo=TRUE}
+m3_dataISD = glmer(Response ~ Prime + 
+                      (1|Participant) + 
+                      (1|Item), 
+                    data = data_ISD, 
+                    family='binomial',
+                    na.action=na.exclude,
+                    control=glmerControl(optimizer="bobyqa",
+                                         optCtrl=list(maxfun=2e5))) 
+
+summary(m3_dataISD) 
+```
+
+### Think point:
+
+How do we know our predictor "prime" helps explain the data?
+
+Hint: we can build a null model and then do model comparison.
+
+# Model Comparision 
+
+## Fit a null model
+
+```{r, echo=TRUE}
+m_null_dataISD = glmer(Response ~ 1 + 
+                      (1|Participant) + 
+                      (1|Item), 
+                    data = data_ISD, 
+                    family='binomial',
+                    na.action=na.exclude,
+                    control=glmerControl(optimizer="bobyqa",
+                                         optCtrl=list(maxfun=2e5))) 
+
+summary(m_null_dataISD) 
+```
+
+## Compare the null model with the one-predictor model
+
+```{r}
+anova(m_null_dataISD , m3_dataISD)
+```
+
+## Think point: which model is better? why?
+
+# Interpret model results: Log odds to probability
+
+```{r}
+summary(m3_dataISD)
+```
+
+```{r}
+print(tab_model(m3_dataISD, 
+                transform = NULL,
+                show.stat = TRUE,
+                title = "Regression Table of the logistic Model",
+                file = "m3_dataISD.html"))#create a html file of the table
+webshot("m3_dataISD.html", "m3_dataISD.png")# convert to png
+```
+
+Note that $p$-values are back when we’ve fitted a model with glmer(), 
+without installing the lmerTest package. R followed the standard practice to
+give statistical significant, based on asymptotic Wald tests on the difference 
+in log-likelihood.
+
+## Understand the Coeffecients
+
+What is the intercept? What is the slope?
+
+Hint: In logit models, the model coefficients are in logit units $log$(log-odds).
+
+To make the estimates/coefficients meaningful, we need to transfer the log-odds 
+to odds.
+
+## Calculate Probabilities 
+
+We can convert the coefficients to odds by using $exp()$, and then obtain the 
+probability: $p = \frac{exp(x)}{1 + exp(x)}$.
+
+(1) The probability of using slang under the baseline condition "prime=other" 
+is: 
+$\frac{exp(-0.28)}{1 + exp(-0.28)} = 0.43$
+
+```{r}
+Prob_baseline <- exp(-0.28)/(1 + exp(-0.28))
+Prob_baseline
+```
+
+(2) Participants' tendency to use slang under the condition "prime = standard" 
+is reduced by a factor of -.94 (log odds) compared to the baseline condition.
+The probability of using slang under the "prime = standard" condition is:
+$\frac{exp(-0.28+(-0.94))}{1 + exp(-0.28+(-0.94))} = 0.23$
+
+```{r}
+Prob_standard <- exp(-0.28+(-0.94))/(1 + exp(-0.28+(-0.94))) 
+Prob_standard
+```
+ 
+(3) Participants' tendency to use slang under the condition "prime = slang" is 
+increased by a factor of 1.13 (log odds) compared to the baseline condition.
+The probability of using slang under the "prime = slang" condition is:
+$\frac{exp(-0.28+1.13)}{1 + exp(-0.28+1.13)} = 0.70$
+
+```{r}
+Prob_slang <- exp(-0.28+1.13) / (1 + exp(-0.28+1.13))
+Prob_slang
+```
+
+# Visulise Model Results 
+
+## Predicted Probabilities
+
+```{r, out.width = "80%", out.height = "100%"}
+# use the plot_model() function from the "sjPlot" package
+plot_model(m3_dataISD, type = "pred", terms = "Prime")
+```
+
+If you have problem installing the sjPlot package, you can do it manually by 
+using the "effects" library. Plot the model-estimated condition means and 
+variability. 
+
+```{r, out.width = "80%", out.height = "100%"}
+efx <- as.data.frame(effect("Prime", m3_dataISD))
+
+ggplot(efx, aes(Prime, fit, col= , ymin=lower, ymax=upper)) +
+  geom_pointrange(width=0.4, size=1, color="orange", fill="white", shape=19) +
+  ggtitle(label = "Probability of using slang in different conditions")+
+  labs(y="Model_estimated mean and variability", x="Prime")+
+  theme(plot.title = element_text(hjust = 0.5, size=16,face = "bold"),
+             axis.text.x = element_text(size=12,face = "bold"),
+             axis.title.x = element_text(size=14),
+             axis.title.y = element_text(size=14),
+             legend.title = element_text(size=14,face = "bold"),
+             legend.text = element_text(size=10,face = "bold"))
+```
+
+## Random Variance
+
+To check the random effect, we extract the deviations for each group from the 
+fixed effect estimates using the ranef() function.
+
+```{r, out.width = "50%", out.height = "80%"}
+# to plot the random effects 
+randoms <- ranef(m3_dataISD, condVar=TRUE)
+dotplot.ranef.mer(randoms)
+```
+
+```{r results='hide'}
+summary(m3_dataISD)$coefficients
+
+fixef(m3_dataISD)
+
+ranef(m3_dataISD)
+
+### group level coefficient
+coef(m3_dataISD)
+```
+
+# Model Assumptions Check
+
+We can use the plot_model() function to visualise whether model assumptions are 
+met.
+
+For linear (mixed) models, this function produces plots for:
+(1) multicollinearity (i.e., check Variance Inflation Factors);
+(2) QQ-plots: checks for normal distribution of residuals and homoscedasticity,
+i.e., constant variance of residuals). 
+
+For generalized linear mixed models, this function produces plots for the 
+QQ-plot for random effects.
+
+```{r, out.width = "50%", out.height = "80%"}
+
+plot_model(m3_dataISD, type = "diag")
+
+```
+
+# Exercise
+
+It's your turn!
+
+Try to explore syntactic priming effect in the cheese data.
+
+## Data loading, cleaning and visualisation
+
+```{r}
+data_cheese <- read_csv("dog_man_cheese.csv")
+```
+
+```{r}
+summary(data_cheese)
+
+
+data_cheese$Response<-as.factor(data_cheese$Response)   # 1= aligned; 0 = not aligned
+
+
+data_cheese$prime <- factor(data_cheese$prime, levels=c("A","B")) # set structure A as reference level 
+
+data_cheese$communication <- factor(data_cheese$communication, levels=c("video_call","audio_call")) 
+```
+
+
+```{r, out.width = "80%", out.height = "100%"}
+ggplot(data_cheese, aes( x=prime, fill=Response)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~communication)+
+  ggtitle(label = "Participants' choice of structure")+
+  labs(y = "Proportion", 
+       x= "Prime structure" )+ 
+  theme(plot.title = element_text(hjust = 0.5, size=18,face = "bold"),
+        axis.text.x = element_text(size=14,face = "bold"),
+        axis.title.x = element_text(size=16,face = "bold"),
+        axis.title.y = element_text(size=16,face = "bold"),
+        legend.title = element_text(size=16,face = "bold"),
+        legend.text = element_text(size=12,face = "bold")
+  )
+```
+
+## Fit an additive model
+
+Fit an intercept-only model including the following as fixed effects: (1) main 
+effect of prime and (2) main effect of communication. 
+ 
+```{r}
+m_addi_datacheese = glmer(Response ~ prime + communication+ 
+                      (1|participant) + 
+                      (1|item), 
+                    data = data_cheese, 
+                    family='binomial',
+                    na.action=na.exclude,
+                    control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5))) 
+
+summary(m_addi_datacheese) 
+```
+
+## Fit an interactive model
+
+Fit an intercept-only model including the following as fixed effects: (1) main 
+effect of prime, (2) main effect of communication, and (3) the interaction effect 
+between prime and communication. 
+
+```{r}
+m_int_datacheese = glmer(Response ~ prime*communication+ 
+                      (1|participant) + 
+                      (1|item), 
+                    data = data_cheese, 
+                    family='binomial',
+                    na.action=na.exclude,
+                    control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5))) 
+
+summary(m_int_datacheese) 
+```
+
+## Model comparison
+
+```{r}
+anova(m_addi_datacheese, m_int_datacheese)
+```
+
+## Interpret the results
+
+```{r}
+summary(m_int_datacheese)
+```
+
+Hint: remember the coefficients are log odds. you need to transfer them to odds and then probability
+
+### Convert log odds to odds
+
+### (1) Probability of producing B in video+primeA condition (intercept)
+```{r}
+Prob_A_video <- exp(0.43)/(exp(0.43)+1)
+Prob_A_video
+```
+
+### (2) Probability of producing B in video+primeB condition(intercept + slope)
+
+```{r}
+Prob_B_video <- exp(1.26)/(exp(1.26)+1) 
+Prob_B_video
+```
+
+### (3) Probability of producing B in audio+primeA condition (intercept + slope)
+```{r}
+Prob_A_audio <- exp(0.53)/(exp(0.53)+1) 
+Prob_A_audio
+```
+
+### (4)Probability of producing B in audio+primeB condition (intercept + slope)
+```{r}
+Prob_B_audio <- exp(0.65)/(exp(0.65)+1) 
+Prob_B_audio
+```
+
+## Visulise the Model
+
+```{r, out.width = "80%", out.height = "100%"}
+# fixed effects
+plot_model(m_int_datacheese, type = "int")
+```
+
+```{r, out.width = "50%", out.height = "80%"}
+# random effects 
+randoms_cheese <- ranef(m_int_datacheese, condVar=TRUE)
+dotplot.ranef.mer(randoms_cheese)
+```
+
+## Check and plot random effects
+
+```{r results='hide'}
+### to check the random effect
+ranef(m_int_datacheese)
+
+### to check the fixed effect
+fixef(m_int_datacheese)
+
+### group level coefficient
+coef(m_int_datacheese)
+```
+
+## Check Model Assumptions
+
+For generalized linear mixed models, returns the QQ-plot for random effects.
+
+```{r, out.width = "50%", out.height = "80%"}
+sjPlot::plot_model(m_int_datacheese, type = "diag") 
+```
+
+
