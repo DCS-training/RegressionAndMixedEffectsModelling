@@ -20,7 +20,7 @@ This course is an advanced training course. It requires a basic understanding of
 
 # Getting Set-up
 We are fine-tuning the course materials now, thus want to run a quick pre-course survey in order to best accommodate your needs. 
-Can you please complete this [https://edinburgh.eu.qualtrics.com/jfe/form/SV_2gi3h3QXTBFHEAm](https://edinburgh.eu.qualtrics.com/jfe/form/SV_6kV3Dtx4Z7uhJl4 )
+Can you please complete this [https://edinburgh.eu.qualtrics.com/jfe/form/SV_6kV3Dtx4Z7uhJl4 ](https://edinburgh.eu.qualtrics.com/jfe/form/SV_6kV3Dtx4Z7uhJl4 )
 
 # Installing R and Packages needed 
 ## Installing R and R Studio
