@@ -1,0 +1,434 @@
+---
+title: "Regression and Mixed-effects Modelling in R : Session 2"
+author: "Fang Jackson-Yang"
+date: "2025-05-06"
+output: bookdown::pdf_document2
+toc: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide')
+```
+
+```{r install packages, include=FALSE}
+library("tidyverse")
+library("lme4")
+library("effects")
+library("sjPlot") # for presenting model results (nice tables)
+library("interactions")
+library("webshot") # for converting tab_model shot from html to png and include it in the .pdf file of the report
+library("kableExtra") # for creating descriptive statistics tables
+library("patchwork") # for arrange plots 
+
+library("broom.mixed") #"broom" for mixed models, used to turn messy R output into nicer table and plots
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+# RECALL THE DATA & OUR ANALYSES FROM LAST WEEK
+
+## Preparation
+
+We will continue using the simulated dataset called "vocabtrainingdata" from Session 1. 
+
+```{r load data}
+vocabdata <- read_csv("vocabtrainingdata.csv")
+
+vocabdata$proficiency <- as.factor(vocabdata$proficiency)
+```
+
+## Descriptive Statistics
+
+```{r TblContingency1, results='asis'}
+Contigency_tbl1<- vocabdata %>%
+    group_by(proficiency, week) %>% 
+    summarise(n=n(),
+              Mean = mean(vocab_test_score),
+              SD = sd(vocab_test_score),
+              Min = min(vocab_test_score),
+              Max = max(vocab_test_score),
+              ) %>% 
+    kable(caption = "Contingency Table of the Vocabulary Test Score Dataset") %>% 
+    kableExtra::kable_styling(
+      position = "center",
+      latex_options = c("striped", "repeat_header"),
+      stripe_color = "gray!15"
+    )
+Contigency_tbl1
+```
+
+## Think Point
+
+Did you notice any problem with the Table \@ref(tab:TblContingency1) ? 
+
+What might have caused the issue? How can you fixed it?
+
+```{r TblContingency2, results='asis'}
+Contigency_tbl2<- vocabdata %>%
+    group_by(proficiency, week) %>% 
+    summarise(n=n(),
+              Mean = round(mean(vocab_test_score, na.rm = TRUE),digits = 2),
+              SD = round(sd(vocab_test_score, na.rm = TRUE),digits = 2),
+              Min = min(vocab_test_score, na.rm = TRUE),
+              Max = max(vocab_test_score, na.rm = TRUE),
+              ) %>% 
+    kable(caption = "Contingency Table of the Vocabulary Test Score Dataset") %>% 
+    kableExtra::kable_styling(
+      position = "center",
+      latex_options = c("striped", "repeat_header"),
+      stripe_color = "gray!15"
+    )
+Contigency_tbl2
+```
+
+# Visulation
+
+Recall that our goal is to check the effectiveness of the online course on the performance of the pupils in vocabulary tests. We assume that the effectiveness might differ among pupils. Before we fit a mixed-effect model to capture such 
+individual difference, let's visualize the pattern for each pupil.
+
+```{r pltIndivDiff, fig.cap="Individual Difference among Pupils Enrolled in the Online Course"}
+ggplot(vocabdata, aes(x=week, y=vocab_test_score, group=participant, color = proficiency)) +
+    geom_smooth(method = "lm",level = 0.95) + 
+    geom_point() + 
+    facet_wrap(~participant, nrow = 4, ncol = 10)+
+  theme(legend.position='bottom')+
+  scale_x_continuous(limits=c(0, 8),breaks=c(0,2,4,6,8)) +
+  scale_y_continuous(limits=c(40, 100))
+```
+
+## Think Point
+
+What have you noticed from the Figure \@ref(fig:pltIndivDiff) ? 
+
+In what ways might this help you answer the research question?
+
+# Fit A Linear Mixed-effects Model
+
+Now we have a good rough idea about the data, but it lacks precision. For that, we resort to mixed-effects modelling.
+
+We are ready to fit a mixed-effects model to capture the main effect of time spent on the online course (number of weeks), main effect of proficiency level, as well as their interaction effect on pupil's vocab test scores. Importantly, we are going to account for individual difference as a random effect.
+
+The random structure of our mixed-effects models can vary depending on what variances of random effects we include. For example, the simplest model would include only random intercepts but no random slops. But before we fit the model, let's check our understanding of the key concepts.
+
+## Think Point
+
+What is intercept?
+
+What is slope?
+
+How can we make sense of them in the context of random effects?
+
+Recall the plots we had from Session 1 shown in Figure \@ref(fig:pltRandomStructure). Panel (a) with the Panel (b) both show the relationship between the number of weeks spent on the online course and the scores of vocabulary tests. How do the two plots differ? What does that tell you? 
+
+```{r, echo=FALSE, results='hide', fig.width=8, fig.height=6}
+
+# including `participant` as a fixed effect in an additive model
+m3a <- lm(vocab_test_score ~ week + participant,
+          data = vocabdata) 
+
+summary(m3a)
+
+plt_intercept <- broom::augment(m3a) %>%
+ ggplot(.,aes(x=week, y=.fitted, color=participant))+
+ geom_line()+
+  labs(x="Weeks of Learning", y = "Vocabulary Test Score", title = "(a)")
+# plt_intercept
+
+```
+
+
+```{r}
+
+# including `participant` as a fixed effect in an interactive model
+m3b <- lm(vocab_test_score ~ week * participant,
+          data = vocabdata) 
+
+summary(m3b)
+
+
+plt_SlopeIntercept <- broom::augment(m3b) %>%
+ ggplot(.,aes(x=week, y=.fitted, color=participant))+
+ geom_line()+
+  labs(x="Weeks of training", y = "Vocabulary Test Score", title = "(b)")
+# plt_SlopeIntercept
+
+```
+
+```{r pltRandomStructure, fig.cap="Random Intercepts (a) vs Random Intercepts and Slopes (b)", fig.width=8, fig.height=6 }
+plt_intercept | plt_SlopeIntercept 
+```
+
+
+```{r}
+tab_model(m3a, m3b)
+```
+
+Looking at the model results, it does not look practical to include participants as a predictor. We will move to mixed-effect modelling by treating the individual differences as random effects.
+
+
+# MIXED-EFFECT MODELLING
+
+
+## Fit a Simplest Mixed-Model
+
+A mixed-model with a simplest random structure means that it only includes random intercepts, but no random slopes. In our example, it means we assume that pupils differ in their test scores, but we assume that the online course has the same effect on each pupil (the slope for each pupil is the same, i.e., no random slopes).
+
+```{r, results='hold'}
+mMixed1 <- lme4::lmer(vocab_test_score ~ week * proficiency + (1 | participant), data = vocabdata)
+summary(mMixed1)
+```
+
+Look at the results of the model, what did you notice? There is no p-value!
+
+Do not panic. This can be calculated and the package "lmerTest" does this job for us. Install the package and run the library. Then fit your model again. Now you should get the p-values. If not, try to specify from which library you want to draw the lmer() function, e.g., lmerTest::lmer(). Now run your model again.
+
+```{r}
+library(lmerTest)
+```
+
+```{r, results='hold'}
+mMixed1_pval <- lmerTest::lmer(vocab_test_score ~ week * proficiency + (1 | participant), data = vocabdata)
+
+summary(mMixed1_pval)
+```
+
+Now you should get your p-values.You can see that the parameters are exactly the same, the only difference is that you now additionally get a column indicating significance.
+
+### Interpret the results
+
+```{r, echo=TRUE}
+summary(mMixed1_pval)
+```
+
+What does the model results tell you?
+
+Did you notice something that we did not have when we fitted simple regressions last week? (hint: individual difference among participants. which section of the model output gives us such information?)
+
+Did you notice something that was involved in the output of a simple regression model but disappeared here? (hint: recall overall model fit)
+
+Can you interpret and report the model results? 
+
+### Visualise the model
+
+#### Fixed effects
+
+```{r fixedeffects, results='asis'}
+# extract fixed effects from the model
+fixef(mMixed1_pval)
+```
+
+```{r}
+# add a line to show the fixed effects on the plot
+# we can use geom_abline
+augment(mMixed1_pval) %>%
+  ggplot(aes(x = week, y = .fitted, color = participant)) + 
+  geom_line() + 
+  geom_point(aes(y=vocab_test_score), alpha=.5)+ 
+  geom_abline(intercept = fixef(mMixed1_pval)[1], 
+              slope = fixef(mMixed1_pval)[2], lwd = 2.)+
+  geom_abline(intercept = fixef(mMixed1_pval)[1] + fixef(mMixed1_pval)[3], 
+              slope= fixef(mMixed1_pval)[2] + fixef(mMixed1_pval)[4],lwd = 2.)+
+  theme(legend.position='none')+
+  labs(x="Number of Weeks Spent on the Course", 
+       y = "Predicted Vocabulary Test Score",
+       title = "Predicted Effects of the Online Course on Vocabulary Test Score")
+```
+
+#### Random effects
+
+```{r randomeffects, results='hide'}
+# extract coefficients for random effects
+coef(mMixed1_pval)
+ranef(mMixed1_pval)
+```
+
+The quick and easy way to visualise the the variance of random effects is to use the dotplot.ranef.mer() function in lme4.
+
+```{r pltrandomeffects, fig.width=5, fig.height=3.6}
+randoms_mMixed1_pval <- ranef(mMixed1_pval)
+
+lme4::dotplot.ranef.mer(randoms_mMixed1_pval)
+```
+
+```{r mMixed1results, results='asis'}
+print(tab_model(mMixed1_pval, show.stat = TRUE,
+                dv.labels = c("Vocabulary Test Score"),
+                pred.labels = c("week" ="Weeks of Learning",
+                                "proficiency[intermediate]" = "Proficiency[Intermediate]" ,
+                                "week:proficiency[intermediate]" = "Week:Proficiency[Intermediate]"),
+                title = "Regression Table of the Simplest Model",
+                file = "mMixed1results.html"))#create a html file of the table
+webshot("mMixed1results.html", "mMixed1results.png")# convert to png
+```
+
+
+```{r}
+tab_model(mMixed1_pval, show.stat = TRUE,
+                dv.labels = c("Vocabulary Test Score"),
+                pred.labels = c("week" ="Weeks of Learning",
+                                "proficiency[intermediate]" = "Proficiency[Intermediate]" ,
+                                "week:proficiency[intermediate]" = "Week:Proficiency[Intermediate]"),
+                title = "Regression Table of the Simplest Model"
+                )#create a html file of the table
+```
+
+#### Report the results 
+
+"We fitted a mixed model including week of learning, proficiency level as well as their interaction as fixed effects, and by-participant intercept as a random effect (random effects for participant had variance of 25.47 and SD of 5.05). Proficiency level was dummy coded using "high" proficiency level as the reference level. The model showed a significant intercept, indicating that students' test scores differed. Number of weeks into the online learning course was a significant predictor for the test score ($\beta_1$=0.50, SE=0.16, 95%CI = [.20, .81], t= 3.22, p< .01). Students' proficiency level was also a significant predictor for the test score; those with low proficiency performed significantly worse than the high proficiency group ($\beta_2$=-25.38, SE=1.97, 95%CI = [-29.24, -21.51], t= -12.9, p< .001). Moreover, the model also revealed a significant interaction effect between week and proficiency. The effect of the online learning course on improving pupils' vocab test scores was larger for the low proficient group than high proficient group ($\beta_3$=1.58, SE=.22, 95%CI = [1.15, 2.01], t = 7.21, p< .001)."
+
+Also note the model fit. Note here we get Marginal R-squared and conditional R-squared. The former represents how much variance in the date that your fixed effects (i.e., predictors) can explain, whereas the latter represents how much variance in the data that the model overall can explain. 
+
+#### Other aspects of the results
+
+Often not needed when reporting model results in your paper. 
+
+To view the results of a mixed model, instead of using the built-in function summary(), we can use the augment() function in the broom.mixed package. This is a handy function that will give you a summary table including the fitted values, residuals, hat values, and so forth. If you are unfamiliar with these concepts, do not worry, you often do not need to report these in your paper. If you are curious, hat values and Cook's D are parts of model diagnostics, used to identify influential data or outliers. More on this next week.
+
+```{r argument, results='hide'}
+print(broom.mixed::augment(mMixed1_pval), n=400)
+```
+
+# TIME FOR A BREAK #
+
+In the first hour of today's session, we built a mixed model accounting for by-subject random intercepts. What about by-subject random slopes?
+
+Let's build models with different structures of random effects. 
+
+## Account for random slopes
+
+We start with a mixed-model with a full/max random structure. This means that the model includes all sources of random variances, including both random intercepts and random slopes for all predictors.
+
+In our example, it means we assume that pupils differ in their test scores. We 
+also assume that the online course has different effects on each pupil (the slope for each pupil is different) and that proficiency level shows difference influence on each pupil. Moreover, we assume proficiency level also has a different effect on the influence of the online course on test score for each pupil.
+
+```{r}
+mMixed_full <- lmerTest::lmer(vocab_test_score ~ week * proficiency + 
+                                (1 + week * proficiency | participant),
+                              data = vocabdata)
+```
+
+We get a warning message telling us the model failed to converge. One way to deal with convergence issue is to adjust optimizer.
+
+
+```{r}
+mMixed_full2 <- lmerTest::lmer(vocab_test_score ~ week * proficiency + 
+                                (1 + week * proficiency | participant),
+                              data = vocabdata,
+                              control=lmerControl(optimizer="bobyqa",
+                                 optCtrl=list(maxfun=2e5)))
+```
+
+Still failed to converge. This means our model cannot explain the data with all our hypothesised effects. We need to simplify the random structure.
+
+
+## Fit a Reduced Mixed-Model
+
+Now we simply our random structure. Fit a model that captures the random effect slope of the online course (but not proficiency level) on each pupil.
+
+Think point: 
+
+How can we reduce the random-effect structure while still accounting for by-subject random slope? 
+
+Which element can we drop from the random-effect structure?
+
+Below is an example. Can you explain the rationale of the random-effect straucture in this model?
+
+```{r reduced}
+mMixed_reduced <- lmerTest::lmer(vocab_test_score ~ week * proficiency + 
+                                (1 + week | participant),
+                              data = vocabdata,
+                              control=lmerControl(optimizer="bobyqa",
+                                 optCtrl=list(maxfun=2e5)))
+summary(mMixed_reduced)
+
+tab_model(mMixed_reduced)
+
+
+```
+
+
+### Think Point 
+
+What results did you get from this reduced model? 
+
+Can you create plots to visualise the fixed effects?
+
+Can you plot the random effects?
+
+How would you report the results?
+
+It's your turn. Try to reuse the code we use for the simplest model to address above questions based on the results of the reduced model. 
+
+Try to write your own code in the following empty chunck. 
+
+```{r}
+
+
+```
+
+
+
+Check the sample code below if you struggle.
+
+```{r pltfixedffectsReduced}
+# add a line to show the fixed effects on the plot
+# we can use geom_abline
+augment(mMixed_reduced) %>%
+  ggplot(aes(x = week, y = .fitted, color = participant)) + 
+  geom_line() + 
+  geom_point(aes(y=vocab_test_score), alpha=.5)+ 
+  geom_abline(intercept = fixef(mMixed_reduced)[1], 
+              slope = fixef(mMixed_reduced)[2], lwd = 2.)+
+  geom_abline(intercept = fixef(mMixed_reduced)[1] + fixef(mMixed_reduced)[3], 
+              slope= fixef(mMixed_reduced)[2] + fixef(mMixed_reduced)[4],lwd = 2.)+
+  theme(legend.position='none')+
+  labs(x="Number of Weeks Spent on the Course", 
+       y = "Predicted Vocabulary Test Score",
+       title = "Predicted Effects of the Online Course on Vocabulary Test Score")
+```
+
+```{r pltrandomeffectsReduced, fig.width=8, fig.height=5}
+randoms_mMixed_reduced <- ranef(mMixed_reduced)
+
+lme4::dotplot.ranef.mer(randoms_mMixed_reduced)
+```
+
+```{r mMixed1resultsReduced, results='asis'}
+print(tab_model(mMixed_reduced, show.stat = TRUE,
+                dv.labels = c("Vocabulary Test Score"),
+                pred.labels = c("week" ="Weeks of Learning",
+                                "proficiency[intermediate]" = "Proficiency[Intermediate]" ,
+                                "week:proficiency[intermediate]" = "Week:Proficiency[Intermediate]"),
+                title = "Regression Table of the Simplest Model",
+                file = "mMixed_reduced.html"))#create a html file of the table
+webshot("mMixed_reduced.html", "mMixed_reduced.png")# convert to png
+```
+
+
+# Model Comparison & Selection
+
+Now we have two models, one with the simplest structure (intercept only) and the other includes both random intercept and random slope. Which model has a better goodness of fit? 
+
+```{r, echo=TRUE, results='hold'}
+anova(mMixed1_pval, mMixed_reduced)
+```
+
+What can you conclude? 
+
+# What's next?
+
+## Exercise (rest of today and Friday)
+
+Can you fit a model with a different structure of random effects and interpret 
+the results? 
+
+Hint: consider including some or all of the following:
+	 - random intercept?  
+	 - random slope of one predictor?
+	 - random slopes of both predictors?
+	 - random slope of the interaction between the two predictors?
+ 
+## Also for Friday: BYOD (Bring your own data)
+
