@@ -1,0 +1,182 @@
+---
+title: "2025LMMCourse Session 5 Practical"
+author: "Fang Yang"
+date: "2025-05-16"
+output: bookdown::pdf_document2
+toc: false
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r install packages, include=FALSE}
+library("tidyverse")
+library("lme4")
+library("effects")
+library("sjPlot") # for creating regression models
+library("webshot") # for converting tab_model shot from html to png and include it in the .pdf file of the report
+library("kableExtra") # for creating descriptive statistics tables
+library("patchwork") # for arrange plots 
+
+library("broom.mixed") #"broom" for mixed models, used to turn messy R output into nicer table and plots
+library("performance")
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+Try to explore syntactic priming effect in the cheese data.
+
+Each time a participant and a confederate took turns to describe pictures to each other. The confederate pretended to be a real participant but read out scripts. A response were coded as 1 if the real participant reused the confederate's sentence structure, otherwise 0. Participants did the experiments online with or without seeing each other's faces (video_call vs audio_call).
+
+## Data loading, cleaning and visualisation
+
+```{r}
+data_cheese <- read_csv("dog_man_cheese.csv")
+```
+
+```{r}
+summary(data_cheese)
+
+
+data_cheese$Response<-as.factor(data_cheese$Response)   # 1= aligned; 0 = not aligned
+
+
+data_cheese$prime <- factor(data_cheese$prime, levels=c("A","B")) # set structure A as reference level 
+
+data_cheese$communication <- factor(data_cheese$communication, levels=c("video_call","audio_call")) 
+```
+
+
+```{r, out.width = "80%", out.height = "100%"}
+
+data_cheese |> 
+    drop_na() |> 
+    ggplot(aes( x=prime, fill=Response)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~communication)+
+  ggtitle(label = "Participants' choice of structure")+
+  labs(y = "Proportion", 
+       x= "Prime structure" )+ 
+  theme(plot.title = element_text(hjust = 0.5, size=18,face = "bold"),
+        axis.text.x = element_text(size=14,face = "bold"),
+        axis.title.x = element_text(size=16,face = "bold"),
+        axis.title.y = element_text(size=16,face = "bold"),
+        legend.title = element_text(size=16,face = "bold"),
+        legend.text = element_text(size=12,face = "bold")
+  )
+```
+
+## Fit an additive model
+
+Fit an intercept-only model including the following as fixed effects: (1) main 
+effect of prime and (2) main effect of communication. 
+ 
+```{r}
+m_addi_datacheese <- glmer(Response ~ prime + communication+ 
+                      (1|participant) + 
+                      (1|item), 
+                    data = data_cheese, 
+                    family='binomial',
+                    na.action=na.exclude,
+                    control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5))) 
+
+summary(m_addi_datacheese) 
+```
+
+## Fit an interactive model
+
+Fit an intercept-only model including the following as fixed effects: (1) main 
+effect of prime, (2) main effect of communication, and (3) the interaction effect 
+between prime and communication. 
+
+```{r}
+m_int_datacheese <- glmer(Response ~ prime*communication+ 
+                      (1|participant) + 
+                      (1|item), 
+                    data = data_cheese, 
+                    family='binomial',
+                    na.action=na.exclude,
+                    control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5))) 
+
+summary(m_int_datacheese) 
+```
+
+## Model comparison
+
+```{r}
+anova(m_addi_datacheese, m_int_datacheese)
+```
+
+## Interpret the results
+
+```{r}
+summary(m_int_datacheese)
+```
+
+Hint: remember the coefficients are log odds. you need to transfer them to odds and then probability
+
+### Convert log odds to odds
+
+### (1) Probability of producing B in video+primeA condition (intercept)
+```{r}
+Prob_A_video <- exp(0.43)/(exp(0.43)+1)
+Prob_A_video
+```
+
+### (2) Probability of producing B in video+primeB condition(intercept + slope)
+
+```{r}
+Prob_B_video <- exp(1.26)/(exp(1.26)+1) 
+Prob_B_video
+```
+
+### (3) Probability of producing B in audio+primeA condition (intercept + slope)
+```{r}
+Prob_A_audio <- exp(0.53)/(exp(0.53)+1) 
+Prob_A_audio
+```
+
+### (4)Probability of producing B in audio+primeB condition (intercept + slope)
+```{r}
+Prob_B_audio <- exp(0.65)/(exp(0.65)+1) 
+Prob_B_audio
+```
+
+## Visulise the Model
+
+```{r, out.width = "80%", out.height = "100%"}
+# fixed effects
+plot_model(m_int_datacheese, type = "int")
+```
+
+```{r, out.width = "50%", out.height = "80%"}
+# random effects 
+randoms_cheese <- ranef(m_int_datacheese, condVar=TRUE)
+dotplot.ranef.mer(randoms_cheese)
+```
+
+## Check and plot random effects
+
+```{r results='hide'}
+### to check the random effect
+ranef(m_int_datacheese)
+
+### to check the fixed effect
+fixef(m_int_datacheese)
+
+### group level coefficient
+coef(m_int_datacheese)
+```
+
+## Check Model Assumptions
+
+For generalized linear mixed models, returns the QQ-plot for random effects.
+
+```{r, out.width = "50%", out.height = "80%"}
+sjPlot::plot_model(m_int_datacheese, type = "diag") 
+
+
+```
+
+
